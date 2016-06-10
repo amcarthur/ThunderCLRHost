@@ -1,5 +1,5 @@
 # ThunderCLRHost
-A sister project for Thunder that exposes CLR hosting functionality
+A sister project for [Thunder](https://github.com/amcarthur/Thunder) that exposes CLR hosting functionality
 
 ## Todo:
 1. Finish implementing the core functionality.
