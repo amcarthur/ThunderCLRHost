@@ -5,79 +5,30 @@ namespace thunder
 {
 	CLRHostManager::CLRHostManager()
 	{
-		_started = false;
-		_startRequested = false;
-		_stopped = false;
-		_stopRequested = false;
-		_executing = false;
-
 		_pMetaHost = NULL;
 		_pRuntimeInfo = NULL;
 		_pClrRuntimeHost = NULL;
-
-		_thread = std::thread(&CLRHostManager::HostThreadProc, this);
+		_initialized = false;
+		_destroyed = false;
 	}
 
 	CLRHostManager::~CLRHostManager()
 	{
-		RequestStop();
-	}
-
-	void CLRHostManager::RequestStart()
-	{
-		_mutex.lock();
-		if (!_started && !_startRequested && !_stopRequested)
-			_startRequested = true;
-		_mutex.unlock();
-	}
-
-	void CLRHostManager::RequestStop()
-	{
-		bool requestedStop = false;
-		_mutex.lock();
-		if ((_started || _startRequested) && !_stopped && !_stopRequested)
-		{
-			_stopRequested = true;
-			requestedStop = true;
-		}
-		_mutex.unlock();
-
-		if (requestedStop)
-			_thread.join();
+		if (_initialized && !_destroyed)
+			DestroyCLR();
 	}
 
 	int CLRHostManager::Execute(const filesystem::path& assemblyPath, const std::wstring& className, const std::wstring& methodName, const std::wstring& argument)
 	{
+		if (!_initialized || _destroyed)
+			return -1;
+
 		if (!filesystem::exists(assemblyPath) || !filesystem::is_regular_file(assemblyPath))
 			return -1;
-
-		bool started = false;
-		bool stopRequested = false;
-		bool executing = false;
-		_mutex.lock();
-		started = _started;
-		stopRequested = _stopRequested;
-		executing = _executing;
-		_mutex.unlock();
-
-		if (!started || stopRequested || executing)
-			return -1;
-
-		_mutex.lock();
-		_executing = true;
-		_mutex.unlock();
-
-		// Note: This might not work.
-		// I may need to do a QueueExecution design instead so that the callee is in the worker thread.
-		// This would make it difficult to pass the method's return value back.
 
 		DWORD ret;
 		HRESULT hr = _pClrRuntimeHost->ExecuteInDefaultAppDomain(assemblyPath.c_str(),
 			className.c_str(), methodName.c_str(), argument.c_str(), &ret);
-
-		_mutex.lock();
-		_executing = false;
-		_mutex.unlock();
 
 		if (FAILED(hr))
 		{
@@ -89,8 +40,10 @@ namespace thunder
 
 	void CLRHostManager::InitializeCLR()
 	{
+		if (_initialized)
+			return;
+
 		HRESULT hr;
-		MessageBox(GetDesktopWindow(), L"Pause", L"ThunderCLRHost", MB_OK);
 		hr = CLRCreateInstance(CLSID_CLRMetaHost, IID_PPV_ARGS(&_pMetaHost));
 		if (FAILED(hr))
 		{
@@ -132,11 +85,14 @@ namespace thunder
 			DestroyCLR();
 		}
 
-		MessageBox(GetDesktopWindow(), L"Initialized CLR!", L"ThunderCLRHost", MB_OK);
+		_initialized = true;
 	}
 
 	void CLRHostManager::DestroyCLR(bool forceStopExecution)
 	{
+		if (!_initialized || !_destroyed)
+			return;
+
 		if (_pMetaHost)
 		{
 			_pMetaHost->Release();
@@ -156,49 +112,9 @@ namespace thunder
 			_pClrRuntimeHost = NULL;
 		}
 
+		_destroyed = true;
+
 		MessageBox(GetDesktopWindow(), L"Destroyed CLR!", L"ThunderCLRHost", MB_OK);
-	}
-
-	void CLRHostManager::HostThreadProc()
-	{
-		while (true)
-		{
-			bool stopRequested = false;
-			bool startRequested = false;
-			bool started = false;
-			bool executing = false;
-
-			_mutex.lock();
-			started = _started;
-			stopRequested = _stopRequested;
-			_stopRequested = false;
-			startRequested = _startRequested;
-			_startRequested = false;
-			executing = _executing;
-			_mutex.unlock();
-
-			if (stopRequested)
-			{
-				if (started)
-					DestroyCLR(executing);
-
-				break;
-			}
-
-			if (startRequested && !started)
-			{
-				InitializeCLR();
-				_mutex.lock();
-				_started = true;
-				_mutex.unlock();
-			}
-
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-		}
-
-		_mutex.lock();
-		_stopped = true;
-		_mutex.unlock();
 	}
 
 	LPCWSTR CLRHostManager::GetLatestFrameworkVersion()
