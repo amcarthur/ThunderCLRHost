@@ -26,8 +26,21 @@ namespace thunder
 		if (!filesystem::exists(assemblyPath) || !filesystem::is_regular_file(assemblyPath))
 			return -1;
 
+		auto imageRuntimeVersion = blackbone::ImageNET::GetImageRuntimeVer(assemblyPath.c_str());
+
+		wchar_t versionString[20];
+		DWORD versionStringSize = 20;
+		HRESULT hr = _pRuntimeInfo->GetVersionString(versionString, &versionStringSize);
+
+		if (std::wcscmp(versionString, imageRuntimeVersion.c_str()) != 0)
+		{
+			MessageBox(GetDesktopWindow(), imageRuntimeVersion.c_str(), L"Image Runtime Version", MB_OK);
+			MessageBox(GetDesktopWindow(), versionString, L"Current Runtime Version", MB_OK);
+			return -1;
+		}
+
 		DWORD ret;
-		HRESULT hr = _pClrRuntimeHost->ExecuteInDefaultAppDomain(assemblyPath.c_str(),
+		hr = _pClrRuntimeHost->ExecuteInDefaultAppDomain(assemblyPath.c_str(),
 			className.c_str(), methodName.c_str(), argument.c_str(), &ret);
 
 		if (FAILED(hr))
@@ -51,7 +64,9 @@ namespace thunder
 			return;
 		}
 
-		hr = _pMetaHost->GetRuntime(L"v2.0.50727", IID_PPV_ARGS(&_pRuntimeInfo));
+		auto frameworkVersion = GetLatestFrameworkVersion();
+		
+		hr = _pMetaHost->GetRuntime(frameworkVersion.c_str(), IID_PPV_ARGS(&_pRuntimeInfo));
 		if (FAILED(hr))
 		{
 			DestroyCLR();
@@ -60,6 +75,7 @@ namespace thunder
 
 		BOOL fLoadable;
 		hr = _pRuntimeInfo->IsLoadable(&fLoadable);
+		
 		if (FAILED(hr))
 		{
 			DestroyCLR();
@@ -79,10 +95,22 @@ namespace thunder
 			return;
 		}
 
-		hr = _pClrRuntimeHost->Start();
+		BOOL isStarted;
+		hr = _pRuntimeInfo->IsStarted(&isStarted, NULL);
 		if (FAILED(hr))
 		{
 			DestroyCLR();
+			return;
+		}
+
+		if (isStarted == FALSE)
+		{
+			hr = _pClrRuntimeHost->Start();
+			if (FAILED(hr))
+			{
+				DestroyCLR();
+				return;
+			}
 		}
 
 		_initialized = true;
@@ -113,19 +141,17 @@ namespace thunder
 		}
 
 		_destroyed = true;
-
-		MessageBox(GetDesktopWindow(), L"Destroyed CLR!", L"ThunderCLRHost", MB_OK);
 	}
 
-	LPCWSTR CLRHostManager::GetLatestFrameworkVersion()
+	std::wstring CLRHostManager::GetLatestFrameworkVersion()
 	{
-		CComPtr<IEnumUnknown> installedRuntimes;
-		HRESULT hr = _pMetaHost->EnumerateInstalledRuntimes(&installedRuntimes.p);
+		IEnumUnknown* installedRuntimes;
+		HRESULT hr = _pMetaHost->EnumerateInstalledRuntimes(&installedRuntimes);
 
-		CComPtr<ICLRRuntimeInfo> runtimeInfo = NULL;
+		ICLRRuntimeInfo* runtimeInfo = NULL;
 		ULONG fetched = 0;
-		std::wstring version;
-		while ((hr = installedRuntimes->Next(1, (IUnknown **)&runtimeInfo.p, &fetched)) == S_OK && fetched > 0) 
+		std::wstring version(L"");
+		while ((hr = installedRuntimes->Next(1, (IUnknown **)&runtimeInfo, &fetched)) == S_OK && fetched > 0) 
 		{
 			wchar_t versionString[20];
 			DWORD versionStringSize = 20;
@@ -133,13 +159,13 @@ namespace thunder
 
 			if (versionStringSize >= 2 && versionString[1] == '4') 
 			{
-				version = versionString;
+				version = std::wstring(versionString);
 				break;
 			}
 		}
 
-		//runtimeInfo->Release();
-		//installedRuntimes->Release();
-		return version.c_str();
+		runtimeInfo->Release();
+		installedRuntimes->Release();
+		return version;
 	}
 }

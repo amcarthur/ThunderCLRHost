@@ -25,6 +25,11 @@
     high_property_prefixes("_get","_put","_putref")		\
     rename("ReportEvent", "InteropServices_ReportEvent")
 
+#define BLACKBONE_STATIC
+
+#include <BlackBone\Process\Process.h>
+#include <BlackBone\PE\PEImage.h>
+
 using namespace mscorlib;
 
 using namespace std::experimental;

@@ -12,7 +12,7 @@ namespace thunder
 		void DestroyCLR(bool forceStopExecution = false);
 
 	private:
-		LPCWSTR GetLatestFrameworkVersion();
+		std::wstring GetLatestFrameworkVersion();
 
 		ICLRMetaHost* _pMetaHost;
 		ICLRRuntimeInfo* _pRuntimeInfo;
