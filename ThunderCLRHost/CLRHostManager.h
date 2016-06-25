@@ -7,12 +7,13 @@ namespace thunder
 	public:
 		CLRHostManager();
 		~CLRHostManager();
-		int Execute(const filesystem::path& assemblyPath, const std::wstring& className, const std::wstring& methodName, const std::wstring& argument = L"");
-		void InitializeCLR();
-		void DestroyCLR(bool forceStopExecution = false);
+		HRESULT Execute(const filesystem::path& assemblyPath, const std::wstring& className, const std::wstring& methodName, const std::wstring& argument = L"", DWORD* returnVal = nullptr);
+		HRESULT InitializeCLR();
+		HRESULT DestroyCLR(bool forceStopExecution = false);
 
 	private:
-		std::wstring GetLatestFrameworkVersion();
+		HRESULT GetInstalledClrRuntimes(std::list<std::wstring>& clrRuntimeList);
+		HRESULT GetLatestRuntimeVersion(std::wstring& latestRuntimeVersion);
 
 		ICLRMetaHost* _pMetaHost;
 		ICLRRuntimeInfo* _pRuntimeInfo;

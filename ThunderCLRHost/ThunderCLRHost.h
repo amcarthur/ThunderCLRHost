@@ -10,6 +10,6 @@
 #define THUNDERCLRHOST_API __declspec(dllimport)
 #endif
 
-THUNDERCLRHOST_API int fnThunderCLRHostInit(void);
-THUNDERCLRHOST_API int fnThunderCLRHostDestroy(void);
-THUNDERCLRHOST_API int fnThunderCLRHostExecute(const wchar_t* assemblyPath, const wchar_t* className, const wchar_t* methodName, const wchar_t* argument = L"");
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostInit(void);
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostDestroy(void);
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostExecute(const wchar_t* assemblyPath, const wchar_t* className, const wchar_t* methodName, const wchar_t* argument = L"", DWORD* returnVal = nullptr);

@@ -13,9 +13,8 @@
 
 #include <string>
 #include <filesystem>
-#include <thread>
-#include <mutex>
-#include <chrono>
+#include <vector>
+#include <functional>
 
 #include <metahost.h>
 #include <atlbase.h>

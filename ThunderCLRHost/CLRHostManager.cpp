@@ -14,17 +14,17 @@ namespace thunder
 
 	CLRHostManager::~CLRHostManager()
 	{
-		if (_initialized && !_destroyed)
+		if (_initialized || !_destroyed)
 			DestroyCLR();
 	}
 
-	int CLRHostManager::Execute(const filesystem::path& assemblyPath, const std::wstring& className, const std::wstring& methodName, const std::wstring& argument)
+	HRESULT CLRHostManager::Execute(const filesystem::path& assemblyPath, const std::wstring& className, const std::wstring& methodName, const std::wstring& argument, DWORD* returnVal)
 	{
 		if (!_initialized || _destroyed)
-			return -1;
+			return E_FAIL;
 
 		if (!filesystem::exists(assemblyPath) || !filesystem::is_regular_file(assemblyPath))
-			return -1;
+			return E_INVALIDARG;
 
 		auto imageRuntimeVersion = blackbone::ImageNET::GetImageRuntimeVer(assemblyPath.c_str());
 
@@ -32,45 +32,50 @@ namespace thunder
 		DWORD versionStringSize = 20;
 		HRESULT hr = _pRuntimeInfo->GetVersionString(versionString, &versionStringSize);
 
+		if (FAILED(hr))
+			return hr;
+
 		if (std::wcscmp(versionString, imageRuntimeVersion.c_str()) != 0)
 		{
 			MessageBox(GetDesktopWindow(), imageRuntimeVersion.c_str(), L"Image Runtime Version", MB_OK);
 			MessageBox(GetDesktopWindow(), versionString, L"Current Runtime Version", MB_OK);
-			return -1;
+			return E_FAIL;
 		}
 
-		DWORD ret;
 		hr = _pClrRuntimeHost->ExecuteInDefaultAppDomain(assemblyPath.c_str(),
-			className.c_str(), methodName.c_str(), argument.c_str(), &ret);
+			className.c_str(), methodName.c_str(), argument.c_str(), returnVal);
 
 		if (FAILED(hr))
-		{
-			return -1;
-		}
+			return hr;
 
-		return ret;
+		return S_OK;
 	}
 
-	void CLRHostManager::InitializeCLR()
+	HRESULT CLRHostManager::InitializeCLR()
 	{
 		if (_initialized)
-			return;
+			return S_OK;
 
-		HRESULT hr;
-		hr = CLRCreateInstance(CLSID_CLRMetaHost, IID_PPV_ARGS(&_pMetaHost));
+		HRESULT hr = CLRCreateInstance(CLSID_CLRMetaHost, IID_PPV_ARGS(&_pMetaHost));
 		if (FAILED(hr))
 		{
 			DestroyCLR();
-			return;
+			return hr;
 		}
 
-		auto frameworkVersion = GetLatestFrameworkVersion();
-		
-		hr = _pMetaHost->GetRuntime(frameworkVersion.c_str(), IID_PPV_ARGS(&_pRuntimeInfo));
+		std::wstring latestRuntimeVersion;
+		hr = GetLatestRuntimeVersion(latestRuntimeVersion);
 		if (FAILED(hr))
 		{
 			DestroyCLR();
-			return;
+			return hr;
+		}
+		
+		hr = _pMetaHost->GetRuntime(latestRuntimeVersion.c_str(), IID_PPV_ARGS(&_pRuntimeInfo));
+		if (FAILED(hr))
+		{
+			DestroyCLR();
+			return hr;
 		}
 
 		BOOL fLoadable;
@@ -79,20 +84,20 @@ namespace thunder
 		if (FAILED(hr))
 		{
 			DestroyCLR();
-			return;
+			return hr;
 		}
 
 		if (!fLoadable)
 		{
 			DestroyCLR();
-			return;
+			return E_FAIL;
 		}
 
 		hr = _pRuntimeInfo->GetInterface(CLSID_CLRRuntimeHost, IID_PPV_ARGS(&_pClrRuntimeHost));
 		if (FAILED(hr))
 		{
 			DestroyCLR();
-			return;
+			return hr;
 		}
 
 		BOOL isStarted;
@@ -100,7 +105,7 @@ namespace thunder
 		if (FAILED(hr))
 		{
 			DestroyCLR();
-			return;
+			return hr;
 		}
 
 		if (isStarted == FALSE)
@@ -109,17 +114,18 @@ namespace thunder
 			if (FAILED(hr))
 			{
 				DestroyCLR();
-				return;
+				return hr;
 			}
 		}
 
 		_initialized = true;
+		return S_OK;
 	}
 
-	void CLRHostManager::DestroyCLR(bool forceStopExecution)
+	HRESULT CLRHostManager::DestroyCLR(bool forceStopExecution)
 	{
 		if (!_initialized || !_destroyed)
-			return;
+			return S_OK;
 
 		if (_pMetaHost)
 		{
@@ -141,31 +147,64 @@ namespace thunder
 		}
 
 		_destroyed = true;
+		return S_OK;
 	}
 
-	std::wstring CLRHostManager::GetLatestFrameworkVersion()
+	// Credit - Mattias Hogstrom http://blog.mattiashogstrom.com/coding/2012/05/26/clr-hosting-api.html
+	HRESULT CLRHostManager::GetInstalledClrRuntimes(std::list<std::wstring>& clrRuntimeList)
 	{
-		IEnumUnknown* installedRuntimes;
-		HRESULT hr = _pMetaHost->EnumerateInstalledRuntimes(&installedRuntimes);
+		HRESULT hr = S_OK;
+		clrRuntimeList.clear();
+		ICLRMetaHost* metahost = nullptr;
+		hr = CLRCreateInstance(CLSID_CLRMetaHost,
+			IID_ICLRMetaHost,
+			(LPVOID*)&metahost);
+		if (FAILED(hr))
+			return hr;
 
-		ICLRRuntimeInfo* runtimeInfo = NULL;
-		ULONG fetched = 0;
-		std::wstring version(L"");
-		while ((hr = installedRuntimes->Next(1, (IUnknown **)&runtimeInfo, &fetched)) == S_OK && fetched > 0) 
+		IEnumUnknown* runtimeEnumerator = nullptr;
+		hr = metahost->EnumerateInstalledRuntimes(&runtimeEnumerator);
+		if (SUCCEEDED(hr))
 		{
-			wchar_t versionString[20];
-			DWORD versionStringSize = 20;
-			hr = runtimeInfo->GetVersionString(versionString, &versionStringSize);
-
-			if (versionStringSize >= 2 && versionString[1] == '4') 
+			WCHAR currentRuntime[50];
+			DWORD bufferSize = ARRAYSIZE(currentRuntime);
+			IUnknown* runtime = nullptr;
+			while (runtimeEnumerator->Next(1, &runtime, NULL) == S_OK)
 			{
-				version = std::wstring(versionString);
-				break;
+				ICLRRuntimeInfo* runtimeInfo = nullptr;
+				hr = runtime->QueryInterface(IID_PPV_ARGS(&runtimeInfo));
+				if (SUCCEEDED(hr))
+				{
+					hr = runtimeInfo->GetVersionString(currentRuntime, &bufferSize);
+					if (SUCCEEDED(hr))
+					{
+						clrRuntimeList.push_back(std::wstring(currentRuntime));
+					}
+					runtimeInfo->Release();
+				}
+				runtime->Release();
 			}
+			runtimeEnumerator->Release();
+			hr = S_OK;
 		}
+		metahost->Release();
+		return hr;
+	}
 
-		runtimeInfo->Release();
-		installedRuntimes->Release();
-		return version;
+	HRESULT CLRHostManager::GetLatestRuntimeVersion(std::wstring& latestRuntimeVersion)
+	{
+		HRESULT result = S_OK;
+		std::list<std::wstring> installedRuntimes;
+		result = GetInstalledClrRuntimes(installedRuntimes);
+
+		if (FAILED(result))
+			return result;
+
+		if (installedRuntimes.empty())
+			return E_FAIL;
+
+		installedRuntimes.sort();
+		latestRuntimeVersion = installedRuntimes.back();
+		return result;
 	}
 }

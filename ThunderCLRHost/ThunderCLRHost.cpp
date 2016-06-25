@@ -8,34 +8,30 @@
 thunder::CLRHostManager* _hostManager = nullptr;
 
 
-THUNDERCLRHOST_API int fnThunderCLRHostInit(void)
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostInit(void)
 {
 	if (_hostManager != nullptr)
-		return -1;
+		return E_FAIL;
 
 	_hostManager = new thunder::CLRHostManager();
-	_hostManager->InitializeCLR();
-	return 0;
+	return _hostManager->InitializeCLR();
 }
 
-THUNDERCLRHOST_API int fnThunderCLRHostDestroy(void)
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostDestroy(void)
 {
 	if (_hostManager == nullptr)
 		return -1;
 
-	_hostManager->DestroyCLR();
+	HRESULT hr = _hostManager->DestroyCLR();
 	delete _hostManager;
 	_hostManager = nullptr;
-	return 0;
+	return hr;
 }
 
-THUNDERCLRHOST_API int fnThunderCLRHostExecute(const wchar_t* assemblyPath, const wchar_t* className, const wchar_t* methodName, const wchar_t* argument)
+THUNDERCLRHOST_API HRESULT fnThunderCLRHostExecute(const wchar_t* assemblyPath, const wchar_t* className, const wchar_t* methodName, const wchar_t* argument, DWORD* returnVal)
 {
 	if (_hostManager == nullptr)
-	{
-		return -1;
-	}
-		
+		return E_FAIL;
 
-	return _hostManager->Execute(assemblyPath, className, methodName, argument);
+	return _hostManager->Execute(assemblyPath, className, methodName, argument, returnVal);
 }
